@@ -51,6 +51,7 @@ SIDEBAR_ORDER = [
     "Deployment",
     "Persona",
     "Roadmap",
+    "How-This-Project-Is-Planned",
     "How-We-Build",
     "FAQ",
 ]
