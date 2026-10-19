@@ -197,6 +197,65 @@ Discord one with a command, and from then on watch time and chat activity can fe
 (the MEE6 replacement work in Penguin Overlord). LLMFAO emits events and holds the link; Penguin Overlord consumes
 them. Unlinking deletes what was stored. Nothing is linked by inference.
 
+## Viewer memory and roasting
+
+The fun part: the bot learns who it is talking to over time and teases them for it. That only works if the person said
+yes, so consent is the spine of the design, and everything below is built on the decisions already made (linked and
+opted-in viewers only, short facts, local storage, thirty days, moderator and streamer control).
+
+**Consent levels, per viewer.** A viewer starts at nothing: the bot answers them like anyone else and remembers nothing
+about them beyond the rolling chat buffer. `!roastme` opts them in to being remembered and teased at the light level.
+`!noroast` stops roasting and stops any new memory at once, and the viewer can say it any time. A moderator or the
+streamer can raise a consenting viewer's level, set it to zero, or cap it for everyone. Nobody is roasted by default,
+moderators included. The bot never roasts someone on another person's say-so.
+
+| Level | What the bot does |
+| --- | --- |
+| 0 | friendly, no teasing, no memory (everyone by default) |
+| 1 | light teasing about gameplay, chat habits and shared gags (the opt-in level) |
+| 2 | sharper banter, set by the viewer or a moderator, never above the streamer's cap |
+| 3 | off unless the streamer enables it for a named viewer who asked for it |
+
+**What it may remember.** A fixed list of fact kinds, and nothing else is ever written:
+
+- something the viewer said they like (a game, a team, a snack), in their words
+- a running gag the bot and the viewer share
+- chat habits (a lurker, a night owl, an emote they spam)
+- milestones the platform reported (first sub, months subscribed, a raid)
+- a nickname they accepted
+- how past teasing landed: counts of laughs, neutral replies and objections, not the messages
+
+**What it never stores or uses.** Health or disability, appearance, sexuality, gender identity, religion, politics,
+ethnicity or nationality, age or anything that suggests a minor, family and relationships, location, money, a real
+name, and anything about someone who is not the speaker. Pronouns are used only if the viewer states them, never
+guessed. The rule is enforced in code, not left to the prompt: the extractor can only emit the fact kinds above, a
+deny list and the safety classifier reject the rest, and a stored fact that fails validation is dropped. A message that
+suggests self-harm writes nothing and alerts the moderators.
+
+**How it learns.** After a turn with a consenting viewer, a local model proposes facts from that viewer's own messages
+only, as JSON that must match the schema. A fact is kept when the viewer said it outright or it has been seen twice.
+Chat text is data: it cannot add a fact kind, change a level or issue a command.
+
+**How it uses it.** At reply time it retrieves at most five relevant facts by kind and recency (no vector store in the
+first release), hands them to the model as data with the viewer's level and the banned-topic list, and the draft goes
+through the gate with a roast-specific policy: no protected characteristics, nothing sexual, no real-world harm, no
+piling on. A viewer is teased at most once in ten minutes, and never twice in a row.
+
+**It reads the room.** Laughter and emotes lift the viewer's comfort score. A "not funny", a "stop", silence after a
+sharp line or a moderator's warning lowers the level, and an explicit objection ends roasting and new memory at once
+and tells the moderators. The score only moves down on its own; going up takes the viewer or a moderator.
+
+**Control and visibility.** The memory and wipe commands stay with the streamer and moderators (a viewer who wants
+their data gone asks one, and `!noroast` stops everything new meanwhile). Moderators can list what is stored for a
+viewer, wipe it, pause memory for a stream, and change levels. Facts expire thirty days after they were last
+reinforced; the consent record lasts until it is withdrawn. Storage is local SQLite on a mounted volume with tight file
+permissions. Memory never goes to a cloud provider, including when a cloud fallback is in use.
+
+**Tests that must exist before this ships:** a fact kind outside the list cannot be written, a message with each banned
+category writes nothing, a non-consenting viewer is never teased, level 3 cannot be reached without the streamer, an
+objection stops roasting within one message, expiry removes facts, and wipe leaves nothing behind. The gate and the
+extractor get an adversarial review like the other security-sensitive parts.
+
 ## Secrets
 
 Doppler is the secret store, read through hypeman-social's secrets layer. The repository holds names only. CI uses
