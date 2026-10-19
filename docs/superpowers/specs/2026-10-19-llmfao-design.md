@@ -210,7 +210,7 @@ the CI one.
 - The board is the Bots & socials project, kept by GYST's `project-sync` and SAFO. Epics become issues there.
 - Agents are routed by the rules in `CLAUDE.md`; anything touching the gate, auth or the allowlist gets an adversarial
   review before merge.
-- Licence GPL-3.0-or-later, like the other Renegade Penguin repositories.
+- Licence GPL-3.0-or-later, to keep it open.
 
 ## Work list outside this repository
 

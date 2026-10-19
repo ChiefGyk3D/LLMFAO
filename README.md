@@ -46,4 +46,4 @@ exists, so the maintainer creates that page once in the UI before the publish jo
 
 ## Licence
 
-GPL-3.0-or-later. Copyright Renegade Penguin LLC.
+GPL-3.0-or-later. Copyright ChiefGyk3D.

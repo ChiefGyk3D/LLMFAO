@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (C) 2026 Renegade Penguin LLC
+# SPDX-FileCopyrightText: Copyright (C) 2026 ChiefGyk3D
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 # Everything CI runs, runnable here.

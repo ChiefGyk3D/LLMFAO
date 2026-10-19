@@ -9,7 +9,7 @@ the next tag, and older tags are not patched.
 
 Please report security issues **privately**, not in a public issue or pull request. Use GitHub's private
 vulnerability reporting on this repository:
-[Report a vulnerability](https://github.com/Renegade-Penguin/LLMFAO/security/advisories/new).
+[Report a vulnerability](https://github.com/ChiefGyk3D/LLMFAO/security/advisories/new).
 
 Please include what you expected, what happened and the steps to reproduce it. Do not include a real token, a
 stream key or a viewer's personal details.
