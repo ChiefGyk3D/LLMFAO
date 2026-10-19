@@ -2,7 +2,7 @@
 
 Artificial intelligence. Natural stupidity.
 
-LLMFAO is an open-source, AI-powered, multi-platform interaction engine designed to bring conversational AI to livestreams, communities, and whatever other questionable integrations we come up with.
+LLMFAO is Large Language Model Fucking Around Online. It is an open-source, AI-powered, multi-platform interaction engine designed to bring conversational AI to livestreams, communities, and whatever other questionable integrations we come up with.
 
 It started with a simple question: What if we gave an LLM a microphone and access to production?
 

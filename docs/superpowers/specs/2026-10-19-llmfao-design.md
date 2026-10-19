@@ -131,10 +131,41 @@ hypeman-social needs, in this order: a Twitch chat adapter (receive and send, bo
 *receive* on the Discord adapter; OpenAI and Claude providers; `gemma4:12b` as the Ollama default. Each is a hypeman
 issue and a release before LLMFAO depends on it.
 
-## Open questions
+## Decisions (2026-10-19)
 
-1. The project name's expansion. The README leaves it out until it is decided.
-2. Whether the safety gate's classifier runs on the same Ollama host as the chat model or a separate one. The suite's
-   current layout runs a guard model on its own card.
-3. Memory: what is remembered per viewer, for how long, and where. Proposed: only for linked viewers, with an expiry.
-4. Stream automation: which tool is driven (OBS is the likely one), and how the human-confirm step is surfaced.
+1. **Name.** LLMFAO is Large Language Model Fucking Around Online. The full expansion stays in the README and
+   branding. The Twitch account, the Discord application and the bot's display name are plain "LLMFAO", because
+   Discord's developer policy asks applications not to promote vulgar content in their portal settings and a public
+   listing is held to more than a private server. (A secondhand reading of the platforms' policies, to be checked
+   against Twitch's and Discord's current text before any public listing.)
+2. **Gate.** Deterministic rules first, then a classifier on a separate Ollama instance, endpoint configurable, with a
+   latency budget; it fails closed. Penguin Overlord will moderate Twitch and Discord itself. LLMFAO does
+   entertainment and conversation, never moderation, and the two stay separate roles with separate credentials.
+3. **Memory.** Linked viewers only, short facts rather than transcripts, local SQLite, 30 days since last activity,
+   no memory sent to a cloud provider unless that provider is configured to receive it. Who may trigger memory and wipe
+   commands is under "Open" below.
+4. **Stream automation.** The first release has TTS and chat only. OBS comes later through authenticated
+   obs-websocket, as separate allowlist entries. A model-proposed action goes to a **private Discord channel** where
+   the maintainer or a moderator approves it. Chat alone never triggers one.
+
+## Rules added from review
+
+- **Gate before TTS.** Text is gated before it is synthesised. Once it has been spoken, a platform's own moderation
+  cannot take it back.
+- **Cooldowns and no self-reply.** Per-user and global rate limits, a hard cap on consecutive bot messages, and the
+  bot never answers itself or another bot.
+- **Invoked, not omnipresent.** The bot responds to a command or a mention by default. Replying to arbitrary chat is a
+  configured, rate-limited mode.
+- **Discord message content is never training data.** Discord's developer policy is reported to forbid using
+  API-obtained message content to train models without permission. Nothing LLMFAO sees on Discord is used for
+  fine-tuning or evaluation sets, and the same rule covers any future Penguin Overlord moderation tuning that would
+  read from this bot. Generating a reply with an existing model is a different thing. Verify the policy text.
+- **No private messages to external models.** Direct messages and private channels are not sent to a cloud provider.
+
+## Open
+
+- **Who may trigger what.** Memory and wipe commands, and which bot features, are restricted to the maintainer and
+  moderators. A viewer must still be able to delete their own stored data, so the exact split needs confirming.
+
+Licence: GPL-3.0-or-later, decided. (AGPL-3.0 would also bind someone who runs a modified copy as a hosted service,
+which GPL does not; it was raised and not taken.)
