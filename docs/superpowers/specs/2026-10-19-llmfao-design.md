@@ -103,6 +103,93 @@ platform event -> adapter (hypeman-social) -> engine: filter -> context -> model
    is its own entry with its own limits. An action that touches the stream is never reachable from a viewer's text
    alone; it needs a trusted sender or a human confirm.
 
+## Live state
+
+The bot knows whether the streamer is live. The source is Twitch EventSub `stream.online` and `stream.offline` (no
+scope needed), plus Get Streams once at startup and a slow poll (every 60 to 120 seconds). The poll matters: events
+missed during a connection drop are not replayed, and a bot that starts while the streamer is already live has to learn
+it. State is `live`, `offline` or `unknown`, and `unknown` behaves like `offline` until it resolves.
+
+Offline, the bot is quiet. Ambient chat, scheduled messages and recaps are off. Direct mentions and commands still get
+answers, and event thank-yous (a sub, a raid) still go out at low priority, each switchable in config.
+
+## Events, with the least privilege that works
+
+Research against Twitch's documentation (to be re-checked against the live pages when the adapter is written) shows the
+bot account's own token is enough for the core events, with no second credential:
+
+- Subs, resubs, gifted subs and raids arrive on `channel.chat.notification`. It needs `user:read:chat` and `user:bot`
+  from the bot, and the broadcaster either makes the bot a moderator or grants `channel:bot`.
+- Cheers arrive as the `cheer` field on the chat message itself.
+- Live state needs no scope. Follows need `moderator:read:followers`, so they are optional and off by default.
+- The richer broadcaster-scoped types (`channel.subscribe`, `channel.cheer`, hype train, channel points) need the
+  broadcaster to authorise the app with extra scopes. They are not needed for the first release, and nothing here asks for
+  them.
+
+All sources emit one neutral event: id, source, kind, time, actor id and name, anonymous flag, amount and currency,
+tier, months, message, recipient and gift batch id. Duplicates are dropped by `(platform, kind, source_id)` with a ten
+minute cache, and a community gift is collapsed with its per-recipient children. Viewer names and messages are untrusted
+text: sanitised, length-capped, run through a name filter, and wrapped as data in every prompt.
+
+## Tips: StreamElements
+
+Tips, merch and loyalty events come from StreamElements through a hypeman-social adapter; Twitch owns subs, cheers and
+raids, and StreamElements' copies of those are ignored so nothing is announced twice. Its channel JWT is a full
+channel-owner credential, so the adapter prefers an OAuth2 token or an Overlay Token with narrow scopes, read through the
+secrets layer, with a documented rotation. After downtime the activities history endpoint is used to resync tips.
+
+## Queue and delivery
+
+The model is often busy, and the bot must never be spammy. Everything outbound goes through one queue and one sender.
+
+| Class | Examples | Queue limit and life | When full |
+| --- | --- | --- | --- |
+| 1 events | sub, gift, cheer, raid, tip | small, minutes | coalesce (ten gifts become one thank-you), then drop newest |
+| 2 mentions | someone talks to the bot | small, seconds | drop oldest |
+| 3 commands | `!recap`, `!so` | small, seconds | drop oldest |
+| 4 ambient | chatter, scheduled lines | tiny, very short | drop oldest, and stop generating |
+
+One sender drains the queue by class. It is bounded by per-user, per-feature and global cooldowns, and by the adapter's
+rate limiter, which stays inside Twitch's limits with a margin. If the model times out or is unreachable, events fall
+back to a canned thank-you written in the persona, and chat and ambient lines stay silent. A deep queue stops the
+generation of ambient lines before it grows. The queue is in memory; a restart does not replay it.
+
+Safety switches: a kill switch (a moderator command and a flag file), a dry-run mode that logs what it would say, and an
+approval mode that posts the draft to a private Discord channel for a moderator to accept or drop. Every message still
+passes the gate before it is sent.
+
+## Recaps
+
+A bounded, in-memory rolling buffer of recent chat feeds a recap, on demand from a moderator or the streamer, and on a
+schedule while live. Ad-break recaps need an ad-break scope the bot does not hold, so the first release is schedule and
+command only. The buffer is chat text, so a recap is a model output over untrusted input and goes through the gate.
+
+## Persona
+
+A persona is a data file the maintainer writes: name, tone, lore, topics to avoid, a do-not-say list, emotes, canned
+fallback lines per event, and which feature each role may trigger (owner, moderator, VIP, subscriber, everyone). It is
+validated on load and reloaded by a moderator command. It is data, never executed.
+
+## Deployment
+
+One container image, built and released through GYST's container workflow, base image pinned by digest, run as a
+non-root user with a read-only filesystem. It holds no secret: Doppler injects them at start. The only state is an
+optional SQLite volume for linked viewers and their short memory. A local health endpoint answers a container healthcheck.
+
+- **On-prem:** a compose file beside the Ollama host, reaching it on the LAN.
+- **Cloud:** the same image on a small host. Ollama stays on-prem and is reached through the Twingate ZTNA connector, so
+  there is no public Ollama port. When the tunnel is down the availability contract applies: events use their canned
+  fallbacks, chat stays silent, and an opt-in cloud fallback provider can take over, without per-viewer memory.
+
+## First release, from the comparison
+
+Comparable bots cover personas, role-gated triggers, event thank-yous, shoutouts, recaps and scheduled lines. The
+first release is: the Twitch adapter and live state, the persona file, mention and command triggers with role gates,
+the event reactions above, the queue with its classes, cooldowns and canned fallbacks, the gate, the kill switch,
+dry-run, on-demand and scheduled recaps, and the container. Next: a follow-spike shutoff, a go-live opener, scheduled
+lines that follow the topic, approval mode, short opt-in viewer memory and metrics. Later: TTS, OBS and a dashboard.
+Persona text, prompts and branding of other products are not copied.
+
 ## Viewer identity
 
 Opt-in, and the reason the project is worth building beside a community bot: a viewer links a Twitch account to a
@@ -142,8 +229,9 @@ issue and a release before LLMFAO depends on it.
    latency budget; it fails closed. Penguin Overlord will moderate Twitch and Discord itself. LLMFAO does
    entertainment and conversation, never moderation, and the two stay separate roles with separate credentials.
 3. **Memory.** Linked viewers only, short facts rather than transcripts, local SQLite, 30 days since last activity,
-   no memory sent to a cloud provider unless that provider is configured to receive it. Who may trigger memory and wipe
-   commands is under "Open" below.
+   no memory sent to a cloud provider unless that provider is configured to receive it. The memory and wipe commands are
+   restricted to moderators and the streamer; anyone can talk to the bot as normal. A viewer who wants their data
+   removed asks a moderator, and the docs say how.
 4. **Stream automation.** The first release has TTS and chat only. OBS comes later through authenticated
    obs-websocket, as separate allowlist entries. A model-proposed action goes to a **private Discord channel** where
    the maintainer or a moderator approves it. Chat alone never triggers one.
@@ -162,10 +250,13 @@ issue and a release before LLMFAO depends on it.
   read from this bot. Generating a reply with an existing model is a different thing. Verify the policy text.
 - **No private messages to external models.** Direct messages and private channels are not sent to a cloud provider.
 
+5. **Token storage.** A refreshed Twitch token is held in memory, and hypeman-social offers an optional callback so a
+   consumer can persist it. No Doppler write credential is built into the adapter.
+
 ## Open
 
-- **Who may trigger what.** Memory and wipe commands, and which bot features, are restricted to the maintainer and
-  moderators. A viewer must still be able to delete their own stored data, so the exact split needs confirming.
+- Whether a rotated Twitch refresh token invalidates the old one, which decides how often a restart needs a manual
+  Doppler update. To be checked against live Twitch.
 
 Licence: GPL-3.0-or-later, decided. (AGPL-3.0 would also bind someone who runs a modified copy as a hosted service,
 which GPL does not; it was raised and not taken.)
