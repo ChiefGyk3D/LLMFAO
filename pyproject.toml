@@ -21,7 +21,7 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/Renegade-Penguin/LLMFAO"
+Homepage = "https://github.com/ChiefGyk3D/LLMFAO"
 
 [tool.setuptools.dynamic]
 version = { attr = "llmfao.__version__" }

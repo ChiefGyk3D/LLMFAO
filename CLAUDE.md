@@ -1,7 +1,7 @@
 # LLMFAO: Claude Code Context
 
 An AI-powered, multi-platform interaction engine: Twitch, Discord, Matrix, TTS and stream automation behind one
-event/action interface. Package `llmfao` (src layout). Licence GPL-3.0-or-later. Copyright Renegade Penguin LLC.
+event/action interface. Package `llmfao` (src layout). Licence GPL-3.0-or-later. Copyright ChiefGyk3D.
 Status: design; the spec is `docs/superpowers/specs/`.
 
 ## Invariants

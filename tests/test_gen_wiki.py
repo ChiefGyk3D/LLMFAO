@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (C) 2026 Renegade Penguin LLC
+# SPDX-FileCopyrightText: Copyright (C) 2026 ChiefGyk3D
 # SPDX-License-Identifier: GPL-3.0-or-later
 """The wiki generator: it works on the real docs, and refuses every bad tree."""
 

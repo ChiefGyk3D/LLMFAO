@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (C) 2026 Renegade Penguin LLC
+# SPDX-FileCopyrightText: Copyright (C) 2026 ChiefGyk3D
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 # ruff, ruff format, mypy --strict and pytest on 3.11 to 3.13. The jobs live in

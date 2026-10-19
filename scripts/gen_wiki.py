@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# SPDX-FileCopyrightText: Copyright (C) 2026 Renegade Penguin LLC
+# SPDX-FileCopyrightText: Copyright (C) 2026 ChiefGyk3D
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 """Generate the GitHub wiki from docs/wiki/.
@@ -38,7 +38,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SRC_DIR = REPO_ROOT / "docs" / "wiki"
-REPO_URL = "https://github.com/Renegade-Penguin/LLMFAO"
+REPO_URL = "https://github.com/ChiefGyk3D/LLMFAO"
 
 # The sidebar order, and the complete list of pages. A page not listed here fails the build.
 SIDEBAR_ORDER = [
