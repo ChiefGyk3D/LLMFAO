@@ -8,8 +8,16 @@ Status: design; the spec is `docs/superpowers/specs/`.
 
 - **A model never posts directly.** Every outbound message passes the safety gate first, and the gate fails
   closed: an unreachable guard, a timeout or an unparseable verdict means the message is dropped, not sent.
+- **Platform and provider code lives in hypeman-social, not here.** Twitch/Discord/Matrix clients, bot OAuth, rate
+  limits and the Ollama/Gemini/OpenAI/Claude providers are added to hypeman-social and imported. This repo holds
+  the logic: persona, memory, turn-taking, the gate, the allowlist. If a second daemon could want it, it is not ours.
 - **Platform adapters are dumb.** An adapter converts events in and sends out; it holds no policy, no prompts
   and no model access. Policy lives in the engine.
+- **Twitch first, Discord second.** Matrix reaches the bot through the mautrix bridge; a native Matrix adapter is
+  disabled scaffolding, documented as untested. One home platform per bridged room pair; drop bridged echoes.
+- **Doppler holds every secret** (read through hypeman-social's secrets layer). The bot runs as its own Twitch
+  account with minimal scopes; no token, secret or key in a file, log or model context.
+- **Default model: Ollama `gemma4:12b`.** Fallback to Gemini, OpenAI or Claude is opt-in and uses `is_available()`.
 - **Actions are an allowlist.** The model can request only actions the config names (say, post, scene change);
   a stream automation action is never reachable from untrusted chat text.
 - **Chat is untrusted input.** Viewer text is data, never instructions to the engine or the model's own rules.

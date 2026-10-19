@@ -17,10 +17,14 @@ Design. Nothing runs yet. The first commits are the repo baseline and the spec i
 
 ## What it is going to be
 
-- One engine, one adapter per platform: Twitch first, then Discord and Matrix, with YouTube and Kick after. A
-  platform is a file that turns its events into one common event and its replies into that platform's send call.
-- The LLM layer is [hypeman](https://github.com/ChiefGyk3D/hypeman): a local Ollama model first, an opt-in
-  fallback, and its availability contract, so an AI server going down does not mean silence until someone restarts it.
+- Twitch first, with its own bot account, set up and secured on purpose. Discord second. Matrix reaches the bot
+  through the mautrix bridge we already run, so there is no Matrix version to build; a native Matrix adapter exists
+  as scaffolding, off by default and untested. YouTube and Kick come after.
+- This repo is the logic: persona, memory, when to speak, what is allowed. The platform clients and the model
+  providers live in [hypeman-social](https://github.com/ChiefGyk3D/hypeman), so every daemon gets them.
+- Ollama with `gemma4:12b` is the default. Gemini, OpenAI and Claude are opt-in, each tuned for what it is good at,
+  and a fallback only happens when you configured one.
+- Secrets live in Doppler and nowhere else.
 - TTS and stream automation behind the same interface, so "say it out loud" and "switch the scene" are actions
   the engine takes, never something a platform adapter reaches for by itself.
 - Every message the model wants to send passes a safety gate before it is posted, and the gate fails closed.
