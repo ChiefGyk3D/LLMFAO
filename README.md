@@ -38,6 +38,12 @@ Same as the rest of the suite: CI and security are callers of
 [Scrum Around and Find Out](https://github.com/ChiefGyk3D/scrum-around-and-find-out), and the agents that write it
 are routed by the rules in [`CLAUDE.md`](CLAUDE.md).
 
+## Wiki
+
+The wiki is generated from [`docs/wiki/`](docs/wiki/) by `scripts/gen_wiki.py` on every push to main, and is not edited
+in the UI: the next publish replaces whatever is there. GitHub only creates a wiki's git remote once its first page
+exists, so the maintainer creates that page once in the UI before the publish job can push.
+
 ## Licence
 
 GPL-3.0-or-later. Copyright Renegade Penguin LLC.

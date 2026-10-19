@@ -20,11 +20,11 @@ venv:
 	$(PY) -m pip install -e ".[dev]"
 
 lint:
-	$(PY) -m ruff check src tests
-	$(PY) -m ruff format --check src tests
+	$(PY) -m ruff check src tests scripts
+	$(PY) -m ruff format --check src tests scripts
 
 format:
-	$(PY) -m ruff format src tests
+	$(PY) -m ruff format src tests scripts
 
 typecheck:
 	$(PY) -m mypy

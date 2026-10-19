@@ -35,7 +35,7 @@ jobs:
         pip install -e ".[dev]"
       test-command: pytest -W error::DeprecationWarning
       lint-install-command: pip install -e ".[dev]"
-      lint-command: ruff check --output-format=github src tests && ruff format --check src tests && mypy
+      lint-command: ruff check --output-format=github src tests scripts && ruff format --check src tests scripts && mypy
       docker-build: false
       egress-policy: block
       doppler-project: ci
