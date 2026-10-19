@@ -9,6 +9,12 @@ updates:
     # waiting a week before proposing it costs nothing.
     cooldown:
       default-days: 7
+    ignore:
+      # v1.24.0 is a bare tag with no published release. Dependabot bumped the
+      # callers one file at a time and left mixed pins. Skip it; the next real
+      # release is proposed as usual and all four callers move together.
+      - dependency-name: "ChiefGyk3D/git-your-ship-together/*"
+        versions: ["1.24.0"]
   - package-ecosystem: pip
     directory: /
     schedule:
