@@ -1,0 +1,29 @@
+# SPDX-FileCopyrightText: Copyright (C) 2026 Renegade Penguin LLC
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Publishes the GitHub wiki from docs/wiki/ on every push to main. A caller of
+# git-your-ship-together's wiki-publish.yml.
+#
+# The wiki is a generated mirror (scripts/gen_wiki.py), never a place to write: the
+# publish replaces every page in it. One step is done once, by hand: GitHub does not
+# create a wiki's git remote until its first page exists, so create any page in the
+# UI first. Until then the publish job fails with a message naming that step.
+name: Wiki
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  wiki:
+    uses: ChiefGyk3D/git-your-ship-together/.github/workflows/wiki-publish.yml@e5c6ec3251cf3a6eea100a1c21736f1818d5efc7 # v1.23.0
+    permissions:
+      contents: write   # the publish job only
+    with:
+      install-command: ""
+      generate-command: python scripts/gen_wiki.py --out wiki-out --commit "$SOURCE_SHA"
+      out-dir: wiki-out
