@@ -15,6 +15,9 @@ updates:
       # release is proposed as usual and all four callers move together.
       - dependency-name: "ChiefGyk3D/git-your-ship-together/*"
         versions: ["1.24.0"]
+    groups:
+      actions:
+        patterns: ["*"]
   - package-ecosystem: pip
     directory: /
     schedule:
