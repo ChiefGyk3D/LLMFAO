@@ -19,6 +19,7 @@ from llmfao.events import (
     DEDUPE_TTL_SECONDS,
     MAX_MESSAGE_CHARS,
     MAX_NAME_CHARS,
+    MAX_PARTITIONS,
     Deduper,
     Event,
     EventError,
@@ -110,8 +111,54 @@ def test_bad_fields_raise_event_error(kw: dict[str, Any]) -> None:
         make(**kw)
 
 
-def test_ids_are_sanitised_so_the_key_cannot_be_spoofed() -> None:
-    assert make(source_id="m" + chr(0x200B) + "1").key == make(source_id="m1").key
+_ID_FIELDS = ["platform", "source_id", "actor_id", "recipient_id", "gift_batch_id"]
+_BAD_IDS = [
+    "m" + chr(0x200B) + "1",  # zero width space
+    chr(0xFF4D) + "1",  # fullwidth m: NFKC would fold it onto "m1"
+    "m" + chr(0x65) + chr(0x301),  # base plus combining acute
+    "m 1",
+    "m\n1",
+    "m\t1",
+    "m" + chr(0x7F),
+    chr(0xE9),
+    chr(0x202E) + "m1",
+    "m" * 129,
+    "",
+]
+
+
+@pytest.mark.parametrize("field", _ID_FIELDS)
+@pytest.mark.parametrize("bad", _BAD_IDS)
+def test_ids_are_opaque_and_invalid_ones_are_rejected(field: str, bad: str) -> None:
+    with pytest.raises(EventError):
+        make(**{field: bad})
+
+
+@pytest.mark.parametrize("field", _ID_FIELDS)
+def test_non_string_ids_are_rejected(field: str) -> None:
+    with pytest.raises(EventError):
+        make(**{field: 5})
+
+
+def test_distinct_lookalike_ids_never_collapse() -> None:
+    # they are refused outright instead of being folded onto the same key
+    for look in ("m" + chr(0x200B) + "1", chr(0xFF4D) + "1"):
+        with pytest.raises(EventError):
+            make(source_id=look)
+    assert make(source_id="m1").key != make(source_id="M1").key
+
+
+def test_identical_valid_ids_dedupe_and_edge_lengths_work() -> None:
+    d = Deduper(clock=Clock())
+    assert d.admit(make(source_id="m1"))
+    assert not d.admit(make(source_id="m1"))
+    assert make(source_id="x" * 128).source_id == "x" * 128
+    assert make(source_id="!~").source_id == "!~"  # 0x21 and 0x7E are the limits
+
+
+def test_ids_are_never_altered() -> None:
+    ev = make(source_id="Ab-1_x:y/z", gift_batch_id="G.1", recipient_id="R1")
+    assert (ev.source_id, ev.gift_batch_id, ev.recipient_id) == ("Ab-1_x:y/z", "G.1", "R1")
 
 
 # ---- sanitising --------------------------------------------------------------------------
@@ -245,6 +292,37 @@ def test_expired_entries_are_purged() -> None:
     assert len(d) == 1
 
 
+def test_flood_on_one_platform_cannot_evict_another_platforms_key() -> None:
+    d = Deduper(clock=Clock(), max_size=5)
+    assert d.admit(make(platform="discord", source_id="live"))
+    for i in range(500):
+        d.admit(make(platform="twitch", source_id=f"f{i}"))
+    assert not d.admit(make(platform="discord", source_id="live"))  # still remembered
+    assert len(d) <= 10
+
+
+def test_each_partition_has_its_own_max_size() -> None:
+    d = Deduper(clock=Clock(), max_size=3)
+    for plat in ("twitch", "discord"):
+        for i in range(3):
+            assert d.admit(make(platform=plat, source_id=f"m{i}"))
+    assert len(d) == 6
+    assert not d.admit(make(platform="twitch", source_id="m0"))
+    assert not d.admit(make(platform="discord", source_id="m0"))
+
+
+def test_partition_count_is_bounded_and_overflow_refused() -> None:
+    clock = Clock()
+    d = Deduper(clock=clock)
+    for i in range(MAX_PARTITIONS):
+        assert d.admit(make(platform=f"p{i}"))
+    with pytest.raises(EventError, match="platform"):
+        d.admit(make(platform="one-too-many"))
+    assert not d.admit(make(platform="p0"))  # known partitions are unaffected
+    clock.now += 601  # everything expired: the slots come back
+    assert d.admit(make(platform="one-too-many"))
+
+
 def test_deduper_rejects_bad_config() -> None:
     with pytest.raises(ValueError, match="max_size"):
         Deduper(max_size=0)
@@ -366,7 +444,73 @@ def test_intake_batch_memory_expires_and_is_bounded() -> None:
     assert small.size <= 6
 
 
+def test_intake_flood_on_one_platform_cannot_evict_another_batch() -> None:
+    intake = EventIntake(clock=Clock(), max_size=3)
+    intake.accept(make(platform="discord", kind=EventKind.COMMUNITY_GIFT, source_id="dp",
+                       gift_batch_id="live"))  # fmt: skip
+    for i in range(50):
+        intake.accept(parent(batch=f"b{i}", sid=f"p{i}"))
+    kid = make(platform="discord", kind=EventKind.SUB_GIFT, source_id="dc", gift_batch_id="live")
+    assert intake.accept(kid) is None  # still folded into its parent
+
+
+def test_intake_refuses_platform_overflow() -> None:
+    intake = EventIntake(clock=Clock())
+    for i in range(MAX_PARTITIONS):
+        assert intake.accept(make(platform=f"p{i}")) is not None
+    with pytest.raises(EventError):
+        intake.accept(make(platform="extra"))
+
+
 def test_only_a_bounded_prefix_of_huge_input_is_inspected() -> None:
     # work is bounded: characters beyond 4x the cap are never looked at
     assert sanitize_text(" " * 40 + "a", 10) == ""
     assert sanitize_text(" " * 39 + "a", 10) == "a"
+
+
+# ---- combining marks ---------------------------------------------------------------------
+
+ACUTE = chr(0x301)
+VS16 = chr(0xFE0F)
+
+
+def test_a_name_of_only_combining_marks_becomes_empty() -> None:
+    assert sanitize_text(ACUTE * 40, 64) == ""
+    assert make(actor_name=ACUTE * 40 + chr(0x20DD)).actor_name == ""
+
+
+def test_leading_and_orphan_marks_are_dropped() -> None:
+    assert sanitize_text(ACUTE + "ab", 64) == "ab"
+    assert sanitize_text("a " + ACUTE + VS16 + "b", 64) == "a b"
+    assert sanitize_text("a" + chr(0x200B) + ACUTE, 64) == chr(0xE1)  # attaches to the a
+
+
+def test_runs_of_marks_are_capped_at_three() -> None:
+    out = sanitize_text("a" + chr(0x300) * 50 + "b", 64)
+    # NFKC composes the first mark onto the a; three more survive the cap
+    assert out == unicodedata.normalize("NFKC", "a" + chr(0x300)) + chr(0x300) * 3 + "b"
+    flood = "a" + "".join(chr(0x300 + i) for i in range(30)) + VS16 * 20
+    out = sanitize_text(flood, 200)
+    run = 0
+    for ch in out:
+        run = run + 1 if unicodedata.category(ch) in {"Mn", "Me"} else 0
+        assert run <= 3
+
+
+def test_variation_selector_flood_is_capped() -> None:
+    out = sanitize_text("a" + VS16 * 30 + chr(0xE0100) * 30, 200)
+    assert len(out) == 4
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        unicodedata.normalize("NFD", "Vi" + chr(0x1EC7) + "t Nam " + chr(0x1EA4)),  # Vietnamese
+        "".join(chr(c) for c in (0x939, 0x93F, 0x928, 0x94D, 0x926, 0x940)),  # Devanagari
+        "e" + chr(0x323) + chr(0x302),  # e with dot below and circumflex: 2 marks, no NFC form
+        "a" + chr(0x323) + chr(0x302) + chr(0x301),  # three marks stay
+    ],
+)
+def test_legitimate_multi_mark_text_is_unchanged(text: str) -> None:
+    assert sanitize_text(text, 64) == unicodedata.normalize("NFKC", text)
+    assert any(unicodedata.category(c) in {"Mn", "Mc"} for c in text)

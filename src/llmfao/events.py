@@ -8,12 +8,22 @@ payloads (chat arrives as hypeman-social's `ChatEvent`, converted by `from_chat_
 this module owns the neutral form.
 
 Viewer text is untrusted data. Names and messages are sanitised on construction (NFKC,
-control, bidi, zero-width and other invisible characters removed, whitespace collapsed),
-length-capped, and typed `UntrustedText` so a consumer can tell them from engine strings.
-Ids are sanitised too, so a dedupe key cannot be spoofed with invisible characters.
+control, bidi, zero-width and other invisible characters removed, orphan combining marks
+dropped and mark runs capped, whitespace collapsed), length-capped, and typed `UntrustedText`
+so a consumer can tell them from engine strings.
+
+Ids (platform, source_id, actor_id, recipient_id, gift_batch_id) are opaque: they are never
+normalised or altered. They must be 1 to 128 printable ASCII characters (0x21 to 0x7E, so no
+whitespace or control characters); anything else raises `EventError`. Lossy cleaning would let
+distinct ids collapse onto one dedupe key.
 
 `Deduper` drops repeats inside a ten minute window; `collapse_gifts` and `EventIntake`
-fold a community gift together with its per-recipient children.
+fold a community gift together with its per-recipient children. The Deduper and the gift batch
+cache are partitioned per platform (own size cap, own TTL, at most `MAX_PARTITIONS`
+partitions; an unknown platform past that raises `EventError`), so a flood on one platform
+cannot evict another platform's live keys. A flood of unique ids on the SAME platform can
+still push out that platform's oldest keys once its partition is full; that is accepted,
+upstream rate limits are out of scope here.
 """
 
 from __future__ import annotations
@@ -38,12 +48,16 @@ MAX_NAME_CHARS = 64
 MAX_MESSAGE_CHARS = 500
 MAX_ID_CHARS = 128
 MAX_MONTHS = 1200
+MAX_PARTITIONS = 16
 _RAW_SLACK = 4  # inspect at most cap * 4 raw characters; NFKC rarely expands more than 2x
 
 #: Unicode categories removed outright: control, format (bidi, zero width, BOM), surrogate,
 #: private use, unassigned. Line and paragraph separators become spaces.
 _STRIP = frozenset({"Cc", "Cf", "Cs", "Co", "Cn"})
 _SPACE_CATS = frozenset({"Zs", "Zl", "Zp"})
+_MARKS = frozenset({"Mn", "Me"})  # combining marks, enclosing marks, variation selectors
+MAX_MARK_RUN = 3
+_ID_RE = re.compile(r"[\x21-\x7e]{1,128}", re.ASCII)
 _WS = re.compile(r"\s+")
 _TIERS = frozenset({"prime", "1000", "2000", "3000"})
 _CURRENCY = re.compile(r"[A-Za-z0-9]{1,8}")
@@ -66,14 +80,26 @@ def sanitize_text(raw: str, max_chars: int) -> str:
         raise ValueError("max_chars must be positive")
     text = unicodedata.normalize("NFKC", raw[: max_chars * _RAW_SLACK])
     kept: list[str] = []
+    run = 0  # consecutive combining marks just kept
     for ch in text:
         cat = unicodedata.category(ch)
         if cat in _STRIP:
             if ch in "\t\n\r\x0b\x0c\x85":  # whitespace controls separate words
                 kept.append(" ")
+                run = 0
             continue
+        if cat in _MARKS:
+            # drop a mark with no base character before it, and cap a run of marks
+            if not kept or kept[-1] == " " or run >= MAX_MARK_RUN:
+                continue
+            run += 1
+            kept.append(ch)
+            continue
+        run = 0
         kept.append(" " if cat in _SPACE_CATS else ch)
-    out = _WS.sub(" ", "".join(kept)).strip()
+    # removals can leave a base next to a mark it was not adjacent to; compose once more
+    joined = unicodedata.normalize("NFKC", "".join(kept))
+    out = _WS.sub(" ", joined).strip()
     out = out[:max_chars].rstrip()
     return out
 
@@ -91,12 +117,12 @@ class EventKind(enum.StrEnum):
 
 
 def _clean_id(value: str, label: str) -> str:
+    """Validate an opaque id. Never alters it: a bad id is refused, not repaired."""
     if not isinstance(value, str):
         raise EventError(f"{label} must be a string")
-    out = sanitize_text(value, MAX_ID_CHARS)
-    if not out:
-        raise EventError(f"{label} is empty")
-    return out
+    if not _ID_RE.fullmatch(value):
+        raise EventError(f"{label} must be 1-{MAX_ID_CHARS} printable ASCII characters")
+    return value
 
 
 def _untrusted(value: str | None, cap: int) -> UntrustedText | None:
@@ -185,10 +211,69 @@ def from_chat_event(chat: ChatEvent, *, time: datetime | None = None) -> Event:
     )
 
 
+class _Partitions:
+    """Per-platform TTL maps. Each partition has its own `max_size`; the number of partitions
+    is bounded. Empty and fully expired partitions are released so slots come back."""
+
+    def __init__(self, ttl: float, max_size: int) -> None:
+        self._ttl = ttl
+        self._max = max_size
+        self._parts: dict[str, OrderedDict[object, float]] = {}
+
+    def __len__(self) -> int:
+        return sum(len(p) for p in self._parts.values())
+
+    @staticmethod
+    def _purge(part: OrderedDict[object, float], now: float, ttl: float) -> None:
+        while part:
+            if now - next(iter(part.values())) < ttl:
+                break
+            part.popitem(last=False)
+
+    def sweep(self, now: float) -> None:
+        for name in list(self._parts):
+            self._purge(self._parts[name], now, self._ttl)
+            if not self._parts[name]:
+                del self._parts[name]
+
+    def partition(self, platform: str, now: float) -> OrderedDict[object, float]:
+        part = self._parts.get(platform)
+        if part is None:
+            if len(self._parts) >= MAX_PARTITIONS:
+                self.sweep(now)
+            if len(self._parts) >= MAX_PARTITIONS:
+                raise EventError(f"too many platforms (limit {MAX_PARTITIONS})")
+            part = self._parts[platform] = OrderedDict()
+        self._purge(part, now, self._ttl)
+        return part
+
+    def add(self, platform: str, key: object, now: float) -> bool:
+        """True if `key` was new in its platform's partition (and is now remembered)."""
+        part = self.partition(platform, now)
+        if key in part:
+            return False
+        part[key] = now
+        while len(part) > self._max:
+            part.popitem(last=False)
+        return True
+
+    def contains(self, platform: str, key: object, now: float) -> bool:
+        part = self._parts.get(platform)
+        if part is None:
+            return False
+        self._purge(part, now, self._ttl)
+        return key in part
+
+
 class Deduper:
     """Remembers keys for `ttl` seconds. A repeat is a duplicate while its age is below `ttl`;
-    at exactly `ttl` it is new again. A duplicate does not extend the window. The cache holds at
-    most `max_size` keys; past that the oldest is forgotten (memory wins over perfect dedupe).
+    at exactly `ttl` it is new again. A duplicate does not extend the window.
+
+    Partitioned per platform: each platform holds at most `max_size` keys (default 10,000)
+    and a flood on one platform cannot evict another platform's keys. At most
+    `MAX_PARTITIONS` platforms are tracked at once; a new one past that raises `EventError`.
+    Within one platform a flood of unique ids still forgets that platform's oldest keys
+    (memory wins over perfect dedupe); upstream rate limits are out of scope.
     """
 
     def __init__(
@@ -203,31 +288,14 @@ class Deduper:
         if max_size < 1:
             raise ValueError("max_size must be at least 1")
         self._clock = clock
-        self._ttl = ttl
-        self._max = max_size
-        self._seen: OrderedDict[tuple[str, EventKind, str], float] = OrderedDict()
+        self._seen = _Partitions(ttl, max_size)
 
     def __len__(self) -> int:
         return len(self._seen)
 
-    def _purge(self, now: float) -> None:
-        while self._seen:
-            oldest = next(iter(self._seen.values()))
-            if now - oldest < self._ttl:
-                break
-            self._seen.popitem(last=False)
-
     def admit(self, event: Event) -> bool:
         """True if the event is new (and is now remembered); False for a duplicate."""
-        now = self._clock()
-        self._purge(now)
-        key = event.key
-        if key in self._seen:
-            return False
-        self._seen[key] = now
-        while len(self._seen) > self._max:
-            self._seen.popitem(last=False)
-        return True
+        return self._seen.add(event.platform, (event.kind, event.source_id), self._clock())
 
 
 def collapse_gifts(events: Iterable[Event]) -> list[Event]:
@@ -264,28 +332,26 @@ class EventIntake:
         max_size: int = DEDUPE_MAX_ENTRIES,
     ) -> None:
         self._clock = clock
-        self._ttl = ttl
-        self._max = max_size
         self._dedupe = Deduper(clock=clock, ttl=ttl, max_size=max_size)
-        self._batches: OrderedDict[tuple[str, str], float] = OrderedDict()
+        self._batches = _Partitions(ttl, max_size)
 
     @property
     def size(self) -> int:
         return len(self._dedupe) + len(self._batches)
 
     def accept(self, event: Event) -> Event | None:
-        """The event to announce, or None if it is a duplicate or folded into a parent."""
+        """The event to announce, or None if it is a duplicate or folded into a parent.
+
+        Raises `EventError` for a platform past the partition limit.
+        """
         if not self._dedupe.admit(event):
             return None
         now = self._clock()
-        while self._batches and now - next(iter(self._batches.values())) >= self._ttl:
-            self._batches.popitem(last=False)
         if event.gift_batch_id is not None:
-            batch = (event.platform, event.gift_batch_id)
             if event.kind is EventKind.COMMUNITY_GIFT:
-                self._batches[batch] = now
-                while len(self._batches) > self._max:
-                    self._batches.popitem(last=False)
-            elif event.kind is EventKind.SUB_GIFT and batch in self._batches:
+                self._batches.add(event.platform, event.gift_batch_id, now)
+            elif event.kind is EventKind.SUB_GIFT and self._batches.contains(
+                event.platform, event.gift_batch_id, now
+            ):
                 return None
         return event
