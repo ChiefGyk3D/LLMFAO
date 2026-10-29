@@ -1,0 +1,38 @@
+name: Bug
+description: Something behaves differently from what the docs or the spec say
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A security problem does not go here. Use the private advisory link on the issue chooser (see SECURITY.md).
+        Remove secrets, tokens, hostnames and real chat content before pasting anything.
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce
+      description: Steps or a failing test, using synthetic data.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+  - type: textarea
+    id: done-when
+    attributes:
+      label: Done when
+      description: The test that fails today and passes after the fix.
+      placeholder: "- [ ] ..."
