@@ -105,7 +105,12 @@ def parse_config(source: str | bytes) -> Config:
 
 
 def load_config(path: str | Path) -> Config:
-    """Read at most `MAX_CONFIG_BYTES` from a regular file and parse it."""
+    """Read at most `MAX_CONFIG_BYTES` from a regular file and parse it.
+
+    Trust boundary: the caller owns trust of the path (the operator chooses it).
+    Only the final component is symlink-checked (O_NOFOLLOW); a symlinked parent
+    directory is followed. Non-regular files (FIFOs, devices) are refused.
+    """
     try:
         fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW)
     except OSError:

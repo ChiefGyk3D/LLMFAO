@@ -66,12 +66,17 @@ def _hypeman_getter(platform: str, key: str) -> str | None:
 def resolve_secret(ref: SecretRef, getter: SecretGetter | None = None) -> SecretValue:
     """Resolve `ref` through `getter` (default: hypeman-social's `get_secret`)."""
     fetch = getter or _hypeman_getter
+    failed = False
+    value: str | None = None
     try:
         value = fetch(ref.platform, ref.key)
     except Exception:
-        # The backend's text could carry a value; report the reference only.
+        failed = True
+    if failed:
+        # Raised outside the except block so the backend exception (whose text could
+        # carry a value) is neither __cause__ nor __context__; report the reference only.
         log.warning("secret %s: lookup failed", ref)
-        raise SecretError(f"secret {ref}: lookup failed") from None
+        raise SecretError(f"secret {ref}: lookup failed")
     if not value:
         log.warning("secret %s: not found", ref)
         raise SecretError(f"secret {ref}: not found")

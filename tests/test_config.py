@@ -5,6 +5,9 @@
 from __future__ import annotations
 
 import logging
+import os
+import pickle
+import threading
 from pathlib import Path
 from typing import BinaryIO
 
@@ -152,12 +155,67 @@ def test_symlink_is_refused(tmp_path: Path) -> None:
 
 
 def test_fifo_is_refused(tmp_path: Path) -> None:
-    import os
-
     fifo = tmp_path / "f.yaml"
     os.mkfifo(fifo)
-    with pytest.raises(ConfigError):
-        load_config(fifo)
+    # Hold a reader open so a non-blocking writer can attach and supply VALID config:
+    # only the S_ISREG check can then refuse the path.
+    rfd = os.open(fifo, os.O_RDONLY | os.O_NONBLOCK)
+    wfd = os.open(fifo, os.O_WRONLY | os.O_NONBLOCK)
+    try:
+        os.write(wfd, VALID.encode())
+        outcome: list[object] = []
+
+        def run() -> None:
+            try:
+                outcome.append(load_config(fifo))
+            except ConfigError as e:
+                outcome.append(e)
+
+        t = threading.Thread(target=run, daemon=True)
+        t.start()
+        t.join(timeout=5)
+        assert not t.is_alive(), "load_config blocked on a FIFO"
+    finally:
+        os.close(wfd)
+        os.close(rfd)
+    assert len(outcome) == 1
+    err = outcome[0]
+    assert isinstance(err, ConfigError)
+    assert "not a regular file" in str(err)
+
+
+def test_fifo_without_a_writer_does_not_block(tmp_path: Path) -> None:
+    fifo = tmp_path / "f.yaml"
+    os.mkfifo(fifo)
+    outcome: list[BaseException | None] = []
+
+    def run() -> None:
+        try:
+            load_config(fifo)
+            outcome.append(None)
+        except ConfigError as e:
+            outcome.append(e)
+
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
+    t.join(timeout=3)
+    if t.is_alive():
+        # Release the stuck blocking open so the thread can finish.
+        wfd = os.open(fifo, os.O_WRONLY | os.O_NONBLOCK)
+        os.close(wfd)
+        t.join(timeout=3)
+        pytest.fail("load_config blocked opening a FIFO with no writer")
+    assert isinstance(outcome[0], ConfigError)
+
+
+def test_symlinked_parent_directory_is_followed(tmp_path: Path) -> None:
+    # Documented trust boundary: the caller owns trust of the path; only the final
+    # component is symlink-checked. Changing this must be a deliberate decision.
+    real_dir = tmp_path / "real"
+    real_dir.mkdir()
+    (real_dir / "c.yaml").write_text(VALID, encoding="utf-8")
+    (tmp_path / "linkdir").symlink_to(real_dir, target_is_directory=True)
+    assert isinstance(load_config(tmp_path / "linkdir" / "c.yaml"), Config)
 
 
 def test_invalid_utf8_is_config_error() -> None:
@@ -297,7 +355,16 @@ def test_getter_exception_does_not_leak_its_text() -> None:
     with pytest.raises(SecretError) as exc:
         resolve_secret(SecretRef("Twitch", "access_token"), getter=getter)
     assert SENTINEL not in str(exc.value)
-    assert exc.value.__cause__ is None or SENTINEL not in str(exc.value)
+    assert exc.value.__context__ is None
+    assert exc.value.__cause__ is None
+
+
+@pytest.mark.parametrize("protocol", range(pickle.HIGHEST_PROTOCOL + 1))
+def test_secret_value_cannot_be_pickled(protocol: int) -> None:
+    with pytest.raises(TypeError) as exc:
+        pickle.dumps(SecretValue(SENTINEL), protocol=protocol)
+    assert SENTINEL not in str(exc.value)
+    assert SENTINEL not in repr(exc.value)
 
 
 def test_default_getter_is_hypemans_get_secret(monkeypatch: pytest.MonkeyPatch) -> None:
