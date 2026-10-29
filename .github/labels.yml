@@ -1,0 +1,11 @@
+# Labels this repository uses. Applied by scripts/sync-labels.sh from the
+# maintainer's own `gh` login; nothing in CI writes labels.
+- name: epic
+  color: "5319e7"
+  description: "A theme with sub-issues; its dates draw its bar on the Roadmap view"
+- name: bug
+  color: "d73a4a"
+  description: "Behavior differs from the docs or the spec"
+- name: ai-surface
+  color: "fbca04"
+  description: "Touches a model, prompt or tool boundary; needs a threat-model line (SAFO)"

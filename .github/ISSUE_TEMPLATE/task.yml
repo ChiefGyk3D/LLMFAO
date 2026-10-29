@@ -1,0 +1,39 @@
+name: Task
+description: One piece of planned work
+labels: []
+body:
+  - type: textarea
+    id: why
+    attributes:
+      label: Why
+      description: The reason for the work. An issue that cannot say why is a question.
+    validations:
+      required: true
+  - type: textarea
+    id: done-when
+    attributes:
+      label: Done when
+      description: A checklist a reviewer can tick. Include the test that must fail without the change.
+      placeholder: "- [ ] ..."
+    validations:
+      required: true
+  - type: textarea
+    id: gate
+    attributes:
+      label: Gate
+      description: How done is checked. Normally `make check` and `ci / CI green`; name any extra review (see CLAUDE.md).
+      value: "`make check` and `ci / CI green`"
+    validations:
+      required: true
+  - type: textarea
+    id: waits-on
+    attributes:
+      label: Waits on
+      description: Other issues or decisions this needs first, or "Nothing".
+    validations:
+      required: true
+  - type: markdown
+    attributes:
+      value: |
+        Size, sprint and area are set on the board when the issue is planned.
+        No secrets, hostnames or real endpoints in this text.
