@@ -19,6 +19,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
+    "hypothesis>=6.100",
     "mypy>=1.10",
     "ruff>=0.5",
     "types-PyYAML>=6.0",
