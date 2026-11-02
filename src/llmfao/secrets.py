@@ -75,10 +75,16 @@ def resolve_secret(ref: SecretRef, getter: SecretGetter | None = None) -> Secret
     if failed:
         # Raised outside the except block so the backend exception (whose text could
         # carry a value) is neither __cause__ nor __context__; report the reference only.
+        # False positive: ref is a platform.key name, never the value
+        # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure
         log.warning("secret %s: lookup failed", ref)
         raise SecretError(f"secret {ref}: lookup failed")
     if not value:
+        # False positive: ref is a platform.key name, never the value
+        # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure
         log.warning("secret %s: not found", ref)
         raise SecretError(f"secret {ref}: not found")
+    # False positive: ref is a platform.key name, never the value
+    # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure
     log.debug("secret %s: resolved", ref)
     return SecretValue(value)
